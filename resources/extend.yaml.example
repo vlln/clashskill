@@ -1,0 +1,63 @@
+# Global Extend 配置示例
+# 复制此文件为 extend.yaml 后生效
+# 作用：自动应用私有配置到所有新订阅
+
+# ========== DNS 配置 ==========
+# 会与订阅配置深度合并（extend 优先）
+dns:
+  nameserver:
+    - 223.5.5.5          # 阿里 DNS
+    - 119.29.29.29       # 腾讯 DNS
+    - 2400:3200::1       # 阿里 IPv6
+  fallback:
+    - https://1.1.1.1/dns-query
+    - https://8.8.8.8/dns-query
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+
+# ========== 规则配置 ==========
+# 会插入在订阅规则最前面（最高优先级）
+rules:
+  # 公司/内网直连
+  - DOMAIN-SUFFIX,company.com,DIRECT
+  - DOMAIN-SUFFIX,company.net,DIRECT
+  - DOMAIN-SUFFIX,internal,DIRECT
+  
+  # 广告屏蔽
+  - DOMAIN-KEYWORD,admarvel,REJECT
+  - DOMAIN-KEYWORD,admaster,REJECT
+  - DOMAIN-SUFFIX,doubleclick.net,REJECT
+  
+  # 私有服务器
+  - DOMAIN,my-server.com,💾 私有服务器
+
+# ========== 节点配置 ==========
+# 会与订阅节点合并（去重）
+proxies:
+  - name: "🏠 家庭服务器"
+    type: ss
+    server: home.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: "password"
+
+# ========== 策略组配置 ==========
+# 会与订阅策略组合并（去重）
+proxy-groups:
+  - name: "🏢 内网"
+    type: select
+    proxies:
+      - DIRECT
+      - "🏠 家庭服务器"
+  
+  - name: "💾 私有服务器"
+    type: select
+    proxies:
+      - "🏠 家庭服务器"
+      - "🚀 选择节点"
+
+# ========== 其他配置 ==========
+tun:
+  enable: true
+  stack: system

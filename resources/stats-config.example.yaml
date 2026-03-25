@@ -1,0 +1,26 @@
+# 统计配置示例文件
+# 将此文件复制为 stats-config.yaml 后修改
+
+# 是否启用统计收集
+enabled: true
+
+# 流量统计
+traffic:
+  # 保存历史天数
+  history_days: 30
+  # 是否记录到单独文件
+  log_to_file: false
+
+# 连接统计
+connections:
+  # 是否记录最活跃域名
+  log_top_domains: true
+  # TOP N 数量
+  top_n: 10
+
+# 节点使用统计
+node_usage:
+  # 记录节点切换历史
+  track_history: true
+  # 记录节点使用时长
+  track_duration: true

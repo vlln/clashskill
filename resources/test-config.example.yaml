@@ -1,0 +1,22 @@
+# 节点测试配置示例文件
+# 将此文件复制为 test-config.yaml 后修改，会自动生效
+
+# 测试URL：用于测试节点延迟
+test_url: http://www.gstatic.com/generate_204
+
+# 备选测试URL（根据需求选择）：
+# test_url: http://cp.cloudflare.com/generate_204    # Cloudflare
+test_url: http://www.google.com/generate_204       # Google
+test_url: https://www.youtube.com/generate_204     # YouTube
+
+# 超时时间（毫秒）
+timeout: 5000
+
+# 并发测试节点数量
+concurrent: 5
+
+# 默认是否测试所有节点
+test_all_by_default: false
+
+# 默认是否按延迟排序
+sort_by_default: false
