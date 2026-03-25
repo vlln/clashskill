@@ -26,9 +26,7 @@
 ## 安装
 
 ```bash
-git clone --depth 1 https://github.com/nelvko/clash-for-linux-install.git \
-  && cd clash-for-linux-install \
-  && bash install.sh
+git clone --depth 1 https://github.com/vlln/clashskill.git
 ```
 
 ## 命令结构
