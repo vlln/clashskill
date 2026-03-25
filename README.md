@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/github/license/nelvko/clash-for-linux-install)](LICENSE)
 [![Shell](https://img.shields.io/badge/language-Shell-89e051)](.)
 
-**152KB** 极致轻量，**为 AI Agent 优化**，**可装为 Kimi Skill 自动触发。**
+**152KB** 极致轻量，**为 AI Agent 优化**，**可装为 Agent Skill 自动触发。**
 
 ## 设计特色
 
