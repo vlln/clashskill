@@ -1,11 +1,61 @@
-# clashctl
+<h1 align="center">clashctl</h1>
 
-> 轻量级 Linux 代理管理工具 | Unix 设计 | 为 AI Agent 优化
+<p align="center">
+  <strong>轻量级 Linux 代理管理工具，为 AI Agent 优化。</strong><br/>
+  一键安装 Mihomo/Clash 代理内核，提供语义化命令行接口管理代理开关、节点切换、订阅更新、规则配置和网络诊断。支持 Tun 模式、Web 控制台和系统代理，兼容主流 Linux 发行版与容器化环境。
+</p>
 
-[![License](https://img.shields.io/github/license/nelvko/clash-for-linux-install)](LICENSE)
-[![Shell](https://img.shields.io/badge/language-Shell-89e051)](.)
+<p align="center">
+  <a href="https://github.com/vlln/clashskill/stargazers"><img src="https://badgen.net/github/stars/vlln/clashskill?label=%E2%98%85" alt="GitHub stars" /></a>
+  <img src="https://badgen.net/badge/license/GPL--3.0/blue" alt="GPL-3.0" />
+  <img src="https://badgen.net/badge/spec/Agent%20Skills/8257D0" alt="Agent Skills spec" />
+</p>
 
-**152KB** 极致轻量，**为 AI Agent 优化**，**可装为 Agent Skill 自动触发。**
+---
+
+## Installation
+
+### [skit](https://github.com/vlln/skit) (Recommended)
+
+```bash
+skit install https://github.com/vlln/clashskill/tree/main/.agents/skills/clashctl-usage
+```
+
+### Manually
+
+| Agent | Command |
+|-------|---------|
+| **Claude Code** | `cp -r .agents/skills/clashctl-usage .claude/skills/` |
+| **Codex** | `cp -r .agents/skills/clashctl-usage ~/.codex/skills/` |
+| **OpenCode** | `git clone https://github.com/vlln/clashskill.git ~/.opencode/skills/clashskill` |
+| **Kimi** | `cp -r .agents/skills/clashctl-usage ~/.kimi/skills/` |
+
+---
+
+## Skills
+
+| Skill | Description |
+|-------|-------------|
+| [clashctl-usage](.agents/skills/clashctl-usage/SKILL.md) | 覆盖代理开关、节点切换、订阅管理、规则配置和网络诊断等场景。 |
+
+## Requirements
+
+- Linux (x86_64, i386, armv7, aarch64)
+- 系统依赖：`xz`, `pgrep`, `curl`/`wget`, `tar`, `unzip`, `ss`/`netstat`, `ip`/`hostname`
+- Tun 模式需要 root 权限
+
+## License
+
+[GPL-3.0](LICENSE)
+
+---
+
+## 工具安装
+
+```bash
+git clone --depth 1 https://github.com/vlln/clashskill.git
+cd clashskill && bash install.sh
+```
 
 ## 设计特色
 
@@ -21,13 +71,7 @@
 - **配置路径输出** - `clashctl rules --path` 直接返回配置文件路径，无需解析输出
 - **结构化 ID** - `#1` 策略组、`@3` 节点，AI 可精确引用
 - **程序化配置** - `clashctl rules set "yaml"` 直接传入配置，无需交互编辑器
-- **Skill 支持** - 可装为 Kimi Skill，自动触发提供命令帮助
-
-## 安装
-
-```bash
-git clone --depth 1 https://github.com/vlln/clashskill.git
-```
+- **Skill 支持** - 可装为 Agent Skill，自动触发提供命令帮助
 
 ## 命令结构
 
@@ -80,7 +124,7 @@ clashctl
 │   └── status      查看状态
 ├── web          Web 控制台
 │   └── secret      密钥管理
-│           └── --set   设置新密钥
+│       └── --set   设置新密钥
 └── sys          系统维护
     ├── upgrade     升级内核
     └── log         查看日志
@@ -190,9 +234,15 @@ TEST_TIMEOUT=5000
 sudo systemctl stop clash 2>/dev/null; pkill -f mihomo 2>/dev/null; rm -rf ~/clashctl ~/.config/clashctl ~/.proxy.env
 ```
 
-## 开源许可
+## 注意事项
 
-本项目基于 [GNU General Public License v3.0](LICENSE) 开源许可。
+- **Root vs 普通用户**：Tun 模式需要 root 权限；普通用户安装时 init 系统降级为 nohup，代理可能不会开机自启。
+- **`rules set` 必须提供合法 YAML**：命令不会校验 YAML 语法，错误格式会覆盖配置导致代理异常。建议先 `rules edit` 在编辑器中校验。
+- **端口冲突**：安装时自动检测端口占用，若 7890/9090 被占用会自动分配随机端口。使用 `clashctl proxy status` 确认实际端口。
+- **订阅更新失败**：订阅链接可能因网络问题（GFW）无法直接访问，需配置 `URL_GH_PROXY` 代理。
+- **Mixin 合并行为**：`rules set` 写入的是 Mixin 配置，会与原始订阅配置深度合并。`rules on` 开启后每次订阅更新都会重新应用。
+- **节点 ID 格式**：`#n` 表示策略组序号，`@n` 表示节点在该策略组内的序号。序号从 1 开始，`clashctl node ls` 查看当前序号。
+- **密钥安全**：Web 控制台默认使用随机密钥，公网环境务必通过 `clashctl web secret --set` 修改并定期更换。
 
 ## 致谢
 
