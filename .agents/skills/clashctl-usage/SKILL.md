@@ -1,20 +1,24 @@
 ---
 name: clashctl-usage
-description: Clashctl 轻量级 Linux 代理管理工具使用指南。提供完整的命令树结构、常用操作示例和配置说明。当用户需要了解或使用 clashctl 工具管理代理时触发此 skill。
+description: 当用户需要了解或使用 clashctl 工具管理 Linux 代理时使用此 skill。覆盖代理开关、节点切换、订阅管理、规则配置和网络诊断等场景。
+license: MIT
+metadata:
+  author: vlln
+  version: "0.1.0"
+requires:
+  bins:
+    - clashctl
 ---
 
 # Clashctl 使用指南
 
-> 轻量级 Linux 代理管理工具 | Unix 设计 | Agent 原生支持
+## 触发关键词
+
+clashctl, clash, mihomo, 代理, proxy, 节点, 订阅, 规则模式, 全局模式, Tun, 系统代理, 翻墙, VPN, 科学上网
 
 ## 快速开始
 
 ```bash
-# 安装
-git clone --depth 1 https://github.com/nelvko/clash-for-linux-install.git \
-  && cd clash-for-linux-install \
-  && bash install.sh
-
 # 开启代理
 clashctl proxy on
 
@@ -128,7 +132,7 @@ clashctl net traffic                # 流量统计
 clashctl net conn                   # 连接统计
 ```
 
-### 全局配置（Agent友好）
+### 全局配置
 
 ```bash
 # 查看配置路径
@@ -224,10 +228,12 @@ TEST_TIMEOUT=5000
 sudo systemctl stop clash 2>/dev/null; pkill -f mihomo 2>/dev/null; rm -rf ~/clashctl ~/.config/clashctl ~/.proxy.env
 ```
 
-## 设计特点
+## Gotchas
 
-| 原则 | 说明 |
-|------|------|
-| **Unix 哲学** | 一个命令做一件事，通过组合实现复杂能力 |
-| **语义化分类** | proxy/node/net/sub/sys 等名词命令 |
-| **Agent 友好** | 结构化 ID（#n @n）、配置路径输出、程序化接口 |
+- **Root vs 普通用户**：Tun 模式需要 root 权限；普通用户安装时 init 系统降级为 nohup，代理可能不会开机自启。
+- **`rules set` 必须提供合法 YAML**：命令不会校验 YAML 语法，错误格式会覆盖配置导致代理异常。建议先 `rules edit` 在编辑器中校验。
+- **端口冲突**：安装时自动检测端口占用，若 7890/9090 被占用会自动分配随机端口。使用 `clashctl proxy status` 确认实际端口。
+- **订阅更新失败**：订阅链接可能因网络问题（GFW）无法直接访问，需配置 `URL_GH_PROXY` 代理。
+- **Mixin 合并行为**：`rules set` 写入的是 Mixin 配置，会与原始订阅配置深度合并。`rules on` 开启后每次订阅更新都会重新应用。
+- **节点 ID 格式**：`#n` 表示策略组序号，`@n` 表示节点在该策略组内的序号。序号从 1 开始，`clashctl node ls` 查看当前序号。
+- **密钥安全**：Web 控制台默认使用随机密钥，公网环境务必通过 `clashctl web secret --set` 修改并定期更换。
