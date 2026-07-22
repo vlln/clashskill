@@ -160,7 +160,7 @@ clashctl rules on
 # ~/.config/clashctl/.env
 KERNEL_NAME=mihomo
 CLASH_BASE_DIR=~/clashctl
-URL_GH_PROXY=https://gh-proxy.org
+URL_GH_PROXY=                    # 按需配置 GitHub 代理
 TEST_URL=http://www.gstatic.com/generate_204
 TEST_TIMEOUT=5000
 ```
@@ -168,15 +168,15 @@ TEST_TIMEOUT=5000
 ## Uninstall
 
 ```bash
-sudo systemctl stop clash 2>/dev/null; pkill -f mihomo 2>/dev/null; rm -rf ~/clashctl ~/.config/clashctl ~/.proxy.env
+bash uninstall.sh
 ```
 
 ## Gotchas
 
 - **Root vs 普通用户**：Tun 模式需要 root 权限；普通用户安装时 init 系统降级为 nohup，代理不会开机自启。
-- **`rules set` 必须提供合法 YAML**：命令不校验 YAML 语法，错误格式会覆盖配置导致代理异常。建议先 `rules edit` 在编辑器中校验。
+- **`rules set` 必须提供合法 YAML**：命令会先校验 YAML，校验失败不会覆盖现有全局配置。
 - **端口冲突**：安装时自动检测端口占用，若 7890/9090 被占用会自动分配随机端口。使用 `clashctl proxy status` 确认实际端口。
 - **订阅更新失败**：订阅链接可能因 GFW 无法直接访问，需配置 `URL_GH_PROXY` 代理。
-- **Mixin 合并行为**：`rules set` 写入的是 Mixin 配置，与原始订阅配置深度合并。`rules on` 开启后每次订阅更新都会重新应用。
+- **全局配置合并行为**：`rules set` 写入 `resources/extend.yaml`，会与内部 Mixin 和原始订阅配置合并。`rules off` 会让该全局配置在后续合并中失效。
 - **节点 ID 格式**：`#n` 表示策略组序号，`@n` 表示节点在该策略组内的序号。序号从 1 开始。
 - **密钥安全**：Web 控制台默认使用随机密钥，公网环境务必通过 `clashctl web secret --set` 修改并定期更换。

@@ -4,11 +4,5 @@ function clashctl
         return
     end
 
-    set suffix $argv[1]
-    set argv $argv[2..-1]
-
-    switch $suffix
-        case '*'
-            bash -i -c "clashctl $suffix $argv"
-    end
+    bash -i -c 'clashctl "$@"' bash $argv
 end

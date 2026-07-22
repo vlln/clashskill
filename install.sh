@@ -21,14 +21,14 @@ _install_service
 _apply_rc
 
 
+_set_secret "$(_get_random_val)"
 _merge_config
 _detect_proxy_port
 clashctl ui
-clashctl secret "$(_get_random_val)" >/dev/null
-clashctl secret
+clashctl web secret
 
 _okcat '🎉' 'enjoy 🎉'
 clashctl
 
 _valid_config "$CLASH_CONFIG_BASE" && CLASH_CONFIG_URL="file://$CLASH_CONFIG_BASE"
-_quit "clashctl sub add $CLASH_CONFIG_URL && clashctl sub use 1"
+_quit 'clashctl sub add "$CLASH_CONFIG_URL" && clashctl sub use 1'

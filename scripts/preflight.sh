@@ -15,11 +15,13 @@ FILE_LOG="/var/log/${KERNEL_NAME}.log"
 FILE_PID="/run/${KERNEL_NAME}.pid"
 
 _valid_required() {
-    local required_cmds=("xz" "pgrep" "curl" "tar" 'unzip')
+    local required_cmds=("xz" "pgrep" "curl" "tar" "unzip" "gzip" "shuf" "mktemp")
     local missing=()
     for cmd in "${required_cmds[@]}"; do
         command -v "$cmd" >&/dev/null || missing+=("$cmd")
     done
+    { command -v ss >&/dev/null || command -v netstat >&/dev/null; } || missing+=("ss/netstat")
+    { command -v ip >&/dev/null || command -v hostname >&/dev/null; } || missing+=("ip/hostname")
     [ "${#missing[@]}" -gt 0 ] && _error_quit "请先安装以下命令：${missing[*]}"
 }
 
@@ -145,7 +147,8 @@ _download_zip() {
             --progress-bar \
             --show-error \
             --fail \
-            --insecure \
+            --proto '=https' \
+            --tlsv1.2 \
             --location \
             --retry 1 \
             --output "$target" \
@@ -163,7 +166,8 @@ _download_ui() {
         --progress-bar \
         --show-error \
         --fail \
-        --insecure \
+        --proto '=https' \
+        --tlsv1.2 \
         --location \
         --retry 1 \
         --output "$ZIP_UI" \
@@ -415,6 +419,7 @@ _is_root() {
 }
 
 _quit() {
-    _is_regular_sudo && exec su "$SUDO_USER"
-    exec "$SHELL" -i -c "$*"
+    local cmd=$1
+    _is_regular_sudo && exec sudo -u "$SUDO_USER" env CLASH_CONFIG_URL="$CLASH_CONFIG_URL" "$SHELL" -i -c "$cmd"
+    exec env CLASH_CONFIG_URL="$CLASH_CONFIG_URL" "$SHELL" -i -c "$cmd"
 }

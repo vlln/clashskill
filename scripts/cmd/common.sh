@@ -14,7 +14,6 @@ BIN_YQ="${BIN_BASE_DIR}/yq"
 BIN_SUBCONVERTER_DIR="${BIN_BASE_DIR}/subconverter"
 BIN_SUBCONVERTER="${BIN_SUBCONVERTER_DIR}/subconverter"
 BIN_SUBCONVERTER_START="$BIN_SUBCONVERTER"
-BIN_SUBCONVERTER_STOP="pkill -9 -f $BIN_SUBCONVERTER"
 BIN_SUBCONVERTER_CONFIG="$BIN_SUBCONVERTER_DIR/pref.yml"
 BIN_SUBCONVERTER_LOG="${BIN_SUBCONVERTER_DIR}/latest.log"
 
@@ -116,7 +115,8 @@ function _error_quit() {
         local msg="${emoji} $1"
         _color_log "$color" "$msg"
     }
-    exec $SHELL -i
+    [[ $- == *i* ]] && return 1
+    exit 1
 }
 
 function _valid_config() {
@@ -129,8 +129,12 @@ function _valid_config() {
         "${test_cmd[@]}"
         grep -qs "unsupport proxy type" <<<"$test_log" && {
             local prefix="检测到订阅中包含不受支持的代理协议"
-            [ "$KERNEL_NAME" = "clash" ] && _error_quit "${prefix}, 推荐安装使用 mihomo 内核"
+            [ "$KERNEL_NAME" = "clash" ] && {
+                _error_quit "${prefix}, 推荐安装使用 mihomo 内核"
+                return 1
+            }
             _error_quit "${prefix}, 请检查并升级内核版本"
+            return 1
         }
     }
 }
@@ -155,7 +159,6 @@ _download_raw_config() {
         --silent \
         --show-error \
         --fail \
-        --insecure \
         --location \
         --max-time 5 \
         --retry 1 \
@@ -164,7 +167,6 @@ _download_raw_config() {
         "$url" ||
         wget \
             --no-verbose \
-            --no-check-certificate \
             --timeout 5 \
             --tries 1 \
             --user-agent "$CLASH_SUB_UA" \
@@ -209,18 +211,21 @@ _detect_subconverter_port() {
 
 _start_convert() {
     _detect_subconverter_port
-    local check_cmd="curl http://localhost:${BIN_SUBCONVERTER_PORT}/version"
-    $check_cmd >&/dev/null && return 0
+    local check_cmd=(curl --silent --fail "http://localhost:${BIN_SUBCONVERTER_PORT}/version")
+    "${check_cmd[@]}" >&/dev/null && return 0
     ("$BIN_SUBCONVERTER_START" >&"$BIN_SUBCONVERTER_LOG" &)
     local start=$(date +%s)
-    while ! $check_cmd >&/dev/null; do
+    while ! "${check_cmd[@]}" >&/dev/null; do
         sleep 0.5s
         local now=$(date +%s)
-        [ $((now - start)) -gt 2 ] && _error_quit "订阅转换服务未启动，请检查日志：$BIN_SUBCONVERTER_LOG"
+        [ $((now - start)) -gt 2 ] && {
+            _error_quit "订阅转换服务未启动，请检查日志：$BIN_SUBCONVERTER_LOG"
+            return 1
+        }
     done
 }
 _stop_convert() {
-    $BIN_SUBCONVERTER_STOP >/dev/null
+    pkill -9 -f "$BIN_SUBCONVERTER" >/dev/null
 }
 
 _set_env() {

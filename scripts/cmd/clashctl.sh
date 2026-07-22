@@ -108,7 +108,10 @@ _clashoff() {
     _clashstatus >&/dev/null && {
         placeholder_stop >/dev/null
         _clashstatus >&/dev/null && _tunstatus >&/dev/null && {
-            _tunoff || _error_quit "请先关闭 Tun 模式"
+            _tunoff || {
+                _error_quit "请先关闭 Tun 模式"
+                return 1
+            }
         }
         placeholder_stop >/dev/null
         _clashstatus >&/dev/null && {
@@ -142,7 +145,10 @@ _clashproxy() {
         _clashstatus >&/dev/null && {
             placeholder_stop >/dev/null
             _clashstatus >&/dev/null && _tunstatus >&/dev/null && {
-                _tunoff || _error_quit "请先关闭 Tun 模式"
+                _tunoff || {
+                    _error_quit "请先关闭 Tun 模式"
+                    return 1
+                }
             }
             placeholder_stop >/dev/null
             _clashstatus >&/dev/null && {
@@ -278,8 +284,25 @@ _clashlog() {
 }
 
 
+_ensure_extend_config() {
+    [ -f "$CLASH_EXTEND_CONFIG" ] || printf '{}\n' >"$CLASH_EXTEND_CONFIG"
+}
+
+_is_extend_disabled() {
+    [ -f "${CLASH_EXTEND_CONFIG}.disabled" ] || [ -f "${CLASH_CONFIG_MIXIN}.disabled" ]
+}
+
 _merge_config() {
     cat "$CLASH_CONFIG_RUNTIME" >"$CLASH_CONFIG_TEMP" 2>/dev/null
+
+    local extend_config="$CLASH_EXTEND_CONFIG"
+    local extend_temp=""
+    if [ ! -f "$extend_config" ] || _is_extend_disabled; then
+        extend_temp=$(mktemp)
+        printf '{}\n' >"$extend_temp"
+        extend_config="$extend_temp"
+    fi
+
     # shellcheck disable=SC2016
     "$BIN_YQ" eval-all '
       ########################################
@@ -287,31 +310,57 @@ _merge_config() {
       ########################################
       select(fileIndex==0) as $config |
       select(fileIndex==1) as $mixin |
-      
+      select(fileIndex==2) as $extend |
+
+      def prefix($obj; $key):
+        ($obj[$key] // null) as $section |
+        if $section == null then []
+        elif ($section | type) == "!!seq" then $section
+        else ($section.prefix // [])
+        end;
+
+      def suffix($obj; $key):
+        ($obj[$key] // null) as $section |
+        if $section == null then []
+        elif ($section | type) == "!!seq" then []
+        else ($section.suffix // [])
+        end;
+
+      def override($obj; $key):
+        ($obj[$key] // null) as $section |
+        if $section == null then []
+        elif ($section | type) == "!!seq" then []
+        else ($section.override // [])
+        end;
+
       ########################################
       #              Deep Merge              #
       ########################################
-      $mixin |= del(._custom) |
-      (($config // {}) * $mixin) as $runtime |
+      ($mixin | del(._custom, .rules, .proxies, ."proxy-groups")) as $mixinCore |
+      ($extend | del(.rules, .proxies, ."proxy-groups")) as $extendCore |
+      (($config // {}) * ($mixinCore // {}) * ($extendCore // {})) as $runtime |
       $runtime |
-      
+
       ########################################
       #               Rules                  #
       ########################################
       .rules = (
-        ($mixin.rules.prefix // []) +
+        prefix($mixin; "rules") +
+        prefix($extend; "rules") +
         ($config.rules // []) +
-        ($mixin.rules.suffix // [])
+        suffix($mixin; "rules") +
+        suffix($extend; "rules")
       ) |
-      
+
       ########################################
       #                Proxies               #
       ########################################
       .proxies = (
-        ($mixin.proxies.prefix // []) +
+        prefix($mixin; "proxies") +
+        prefix($extend; "proxies") +
         (
           ($config.proxies // []) as $configList |
-          ($mixin.proxies.override // []) as $overrideList |
+          (override($mixin; "proxies") + override($extend; "proxies")) as $overrideList |
           $configList | map(
             . as $configItem |
             (
@@ -319,17 +368,19 @@ _merge_config() {
             ) // $configItem
           )
         ) +
-        ($mixin.proxies.suffix // [])
+        suffix($mixin; "proxies") +
+        suffix($extend; "proxies")
       ) |
-      
+
       ########################################
       #             ProxyGroups              #
       ########################################
-      .proxy-groups = (
-        ($mixin.proxy-groups.prefix // []) +
+      ."proxy-groups" = (
+        prefix($mixin; "proxy-groups") +
+        prefix($extend; "proxy-groups") +
         (
-          ($config.proxy-groups // []) as $configList |
-          ($mixin.proxy-groups.override // []) as $overrideList |
+          ($config."proxy-groups" // []) as $configList |
+          (override($mixin; "proxy-groups") + override($extend; "proxy-groups")) as $overrideList |
           $configList | map(
             . as $configItem |
             (
@@ -337,12 +388,22 @@ _merge_config() {
             ) // $configItem
           )
         ) +
-        ($mixin.proxy-groups.suffix // [])
+        suffix($mixin; "proxy-groups") +
+        suffix($extend; "proxy-groups")
       )
-    ' "$CLASH_CONFIG_BASE" "$CLASH_CONFIG_MIXIN" >"$CLASH_CONFIG_RUNTIME"
+    ' "$CLASH_CONFIG_BASE" "$CLASH_CONFIG_MIXIN" "$extend_config" >"$CLASH_CONFIG_RUNTIME"
+    local merge_status=$?
+    [ -n "$extend_temp" ] && rm -f "$extend_temp"
+    [ "$merge_status" -eq 0 ] || {
+        cat "$CLASH_CONFIG_TEMP" >"$CLASH_CONFIG_RUNTIME"
+        _error_quit "合并失败：请检查 Mixin/全局配置"
+        return 1
+    }
+
     _valid_config "$CLASH_CONFIG_RUNTIME" || {
         cat "$CLASH_CONFIG_TEMP" >"$CLASH_CONFIG_RUNTIME"
-        _error_quit "验证失败：请检查 Mixin 配置"
+        _error_quit "验证失败：请检查 Mixin/全局配置"
+        return 1
     }
 }
 
@@ -350,7 +411,10 @@ _merge_config_restart() {
     _merge_config
     placeholder_stop >/dev/null
     _clashstatus >&/dev/null && _tunstatus >&/dev/null && {
-        _tunoff || _error_quit "请先关闭 Tun 模式"
+        _tunoff || {
+            _error_quit "请先关闭 Tun 模式"
+            return 1
+        }
     }
     placeholder_stop >/dev/null
     sleep 0.1
@@ -359,6 +423,10 @@ _merge_config_restart() {
 }
 _get_secret() {
     "$BIN_YQ" '.secret // ""' "$CLASH_CONFIG_RUNTIME"
+}
+_set_secret() {
+    [ $# -eq 1 ] || return 1
+    CLASH_SECRET_VALUE=$1 "$BIN_YQ" -i '.secret = strenv(CLASH_SECRET_VALUE)' "$CLASH_CONFIG_MIXIN"
 }
 _clashweb() {
     case "$1" in
@@ -443,7 +511,7 @@ _clashweb_secret_set() {
         _failcat "用法: clashctl web secret --set <new_secret>"
         return 1
     fi
-    "$BIN_YQ" -i ".secret = \"$1\"" "$CLASH_CONFIG_MIXIN" || {
+    _set_secret "$1" || {
         _failcat "密钥更新失败，请重新输入"
         return 1
     }
@@ -487,7 +555,10 @@ _tunon() {
     _merge_config
     placeholder_sudo_start
     sleep 0.5
-    _clashstatus >&/dev/null || _error_quit "Tun 模式开启失败"
+    _clashstatus >&/dev/null || {
+        _error_quit "Tun 模式开启失败"
+        return 1
+    }
     local fail_msg="Start TUN listening error|unsupported kernel version"
     local ok_msg="Tun adapter listening at|TUN listening iface"
     _clashlog | grep -E -m1 -qs "$fail_msg" && {
@@ -500,6 +571,7 @@ _tunon() {
             _clashlog | grep -E -m1 "$fail_msg"
             _tunoff >&/dev/null
             _error_quit '系统内核版本不支持 Tun 模式'
+            return 1
         }
     }
     _okcat "Tun 模式已开启"
@@ -653,28 +725,38 @@ _sub_add() {
     [ -z "$url" ] && {
         echo -n "$(_okcat '✈️ ' '请输入要添加的订阅链接：')"
         read -r url
-        [ -z "$url" ] && _error_quit "订阅链接不能为空"
+        [ -z "$url" ] && {
+            _error_quit "订阅链接不能为空"
+            return 1
+        }
     }
-    _get_url_by_id "$id" >/dev/null && _error_quit "该订阅链接已存在"
+    local existing_id
+    existing_id=$(_get_id_by_url "$url") && {
+        _error_quit "该订阅链接已存在：[$existing_id]"
+        return 1
+    }
 
     _download_config "$CLASH_CONFIG_TEMP" "$url"
-    _valid_config "$CLASH_CONFIG_TEMP" || _error_quit "订阅无效，请检查：
+    _valid_config "$CLASH_CONFIG_TEMP" || {
+        _error_quit "订阅无效，请检查：
     原始订阅：${CLASH_CONFIG_TEMP}.raw
     转换订阅：$CLASH_CONFIG_TEMP
     转换日志：$BIN_SUBCONVERTER_LOG"
+        return 1
+    }
 
     local id=$("$BIN_YQ" '.profiles // [] | (map(.id) | max) // 0 | . + 1' "$CLASH_PROFILES_META")
     local profile_path="${CLASH_PROFILES_DIR}/${id}.yaml"
     mv "$CLASH_CONFIG_TEMP" "$profile_path"
 
-    "$BIN_YQ" -i "
-         .profiles = (.profiles // []) + 
+    PROFILE_ID=$id PROFILE_PATH=$profile_path PROFILE_URL=$url "$BIN_YQ" -i '
+         .profiles = (.profiles // []) +
          [{
-           \"id\": $id,
-           \"path\": \"$profile_path\",
-           \"url\": \"$url\"
+           "id": env(PROFILE_ID),
+           "path": strenv(PROFILE_PATH),
+           "url": strenv(PROFILE_URL)
          }]
-    " "$CLASH_PROFILES_META"
+    ' "$CLASH_PROFILES_META"
     _logging_sub "➕ 已添加订阅：[$id] $url"
     _okcat '🎉' "订阅已添加：[$id] $url"
 }
@@ -683,15 +765,24 @@ _sub_del() {
     [ -z "$id" ] && {
         echo -n "$(_okcat '✈️ ' '请输入要删除的订阅 id：')"
         read -r id
-        [ -z "$id" ] && _error_quit "订阅 id 不能为空"
+        [ -z "$id" ] && {
+            _error_quit "订阅 id 不能为空"
+            return 1
+        }
     }
-    local profile_path url
-    profile_path=$(_get_path_by_id "$id") || _error_quit "订阅 id 不存在，请检查"
+    local profile_path url use
+    profile_path=$(_get_path_by_id "$id") || {
+        _error_quit "订阅 id 不存在，请检查"
+        return 1
+    }
     url=$(_get_url_by_id "$id")
     use=$("$BIN_YQ" '.use // ""' "$CLASH_PROFILES_META")
-    [ "$use" = "$id" ] && _error_quit "删除失败：订阅 $id 正在使用中，请先切换订阅"
+    [ "$use" = "$id" ] && {
+        _error_quit "删除失败：订阅 $id 正在使用中，请先切换订阅"
+        return 1
+    }
     /usr/bin/rm -f "$profile_path"
-    "$BIN_YQ" -i "del(.profiles[] | select(.id == \"$id\"))" "$CLASH_PROFILES_META"
+    PROFILE_ID=$id "$BIN_YQ" -i 'del(.profiles[] | select((.id | tostring) == strenv(PROFILE_ID)))' "$CLASH_PROFILES_META"
     _logging_sub "➖ 已删除订阅：[$id] $url"
     _okcat '🎉' "订阅已删除：[$id] $url"
 }
@@ -699,37 +790,51 @@ _sub_list() {
     "$BIN_YQ" "$CLASH_PROFILES_META"
 }
 _sub_use() {
-    "$BIN_YQ" -e '.profiles // [] | length == 0' "$CLASH_PROFILES_META" >&/dev/null &&
+    "$BIN_YQ" -e '.profiles // [] | length == 0' "$CLASH_PROFILES_META" >&/dev/null && {
         _error_quit "当前无可用订阅，请先添加订阅"
+        return 1
+    }
     local id=$1
     [ -z "$id" ] && {
         clashctl sub ls
         echo -n "$(_okcat '✈️ ' '请输入要使用的订阅 id：')"
         read -r id
-        [ -z "$id" ] && _error_quit "订阅 id 不能为空"
+        [ -z "$id" ] && {
+            _error_quit "订阅 id 不能为空"
+            return 1
+        }
     }
     local profile_path url
-    profile_path=$(_get_path_by_id "$id") || _error_quit "订阅 id 不存在，请检查"
+    profile_path=$(_get_path_by_id "$id") || {
+        _error_quit "订阅 id 不存在，请检查"
+        return 1
+    }
     url=$(_get_url_by_id "$id")
-    
-    cat "$profile_path" > "$CLASH_CONFIG_BASE"
+
+    cat "$profile_path" >"$CLASH_CONFIG_BASE"
     _merge_config_restart
-    "$BIN_YQ" -i ".use = $id" "$CLASH_PROFILES_META"
+    PROFILE_ID=$id "$BIN_YQ" -i '.use = env(PROFILE_ID)' "$CLASH_PROFILES_META"
     _logging_sub "🔥 订阅已切换为：[$id] $url"
     _okcat '🔥' '订阅已生效'
 }
 _get_path_by_id() {
-    "$BIN_YQ" -e ".profiles[] | select(.id == \"$1\") | .path" "$CLASH_PROFILES_META" 2>/dev/null
+    PROFILE_ID=$1 "$BIN_YQ" -e '.profiles[] | select((.id | tostring) == strenv(PROFILE_ID)) | .path' "$CLASH_PROFILES_META" 2>/dev/null
 }
 _get_url_by_id() {
-    "$BIN_YQ" -e ".profiles[] | select(.id == \"$1\") | .url" "$CLASH_PROFILES_META" 2>/dev/null
+    PROFILE_ID=$1 "$BIN_YQ" -e '.profiles[] | select((.id | tostring) == strenv(PROFILE_ID)) | .url' "$CLASH_PROFILES_META" 2>/dev/null
+}
+_get_id_by_url() {
+    PROFILE_URL=$1 "$BIN_YQ" -e '.profiles[] | select(.url == strenv(PROFILE_URL)) | .id' "$CLASH_PROFILES_META" 2>/dev/null
 }
 _sub_update() {
     local arg is_convert
     for arg in "$@"; do
         case $arg in
         --auto)
-            command -v crontab >/dev/null || _error_quit "未检测到 crontab 命令，请先安装 cron 服务"
+            command -v crontab >/dev/null || {
+                _error_quit "未检测到 crontab 命令，请先安装 cron 服务"
+                return 1
+            }
             crontab -l | grep -qs 'clashctl sub update' || {
                 (
                     crontab -l 2>/dev/null
@@ -748,7 +853,10 @@ _sub_update() {
     local id=$1
     [ -z "$id" ] && id=$("$BIN_YQ" '.use // 1' "$CLASH_PROFILES_META")
     local url profile_path
-    url=$(_get_url_by_id "$id") || _error_quit "订阅 id 不存在，请检查"
+    url=$(_get_url_by_id "$id") || {
+        _error_quit "订阅 id 不存在，请检查"
+        return 1
+    }
     profile_path=$(_get_path_by_id "$id")
     _okcat "✈️ " "更新订阅：[$id] $url"
 
@@ -764,6 +872,7 @@ _sub_update() {
     原始订阅：${CLASH_CONFIG_TEMP}.raw
     转换订阅：$CLASH_CONFIG_TEMP
     转换日志：$BIN_SUBCONVERTER_LOG"
+        return 1
     }
     _logging_sub "✅ 订阅更新成功：[$id] $url"
     cat "$CLASH_CONFIG_TEMP" >"$profile_path"
@@ -857,10 +966,11 @@ _clashrules_runtime() {
 _clashrules_global() {
     case "$1" in
     --path)
-        echo "$CLASH_CONFIG_MIXIN"
+        echo "$CLASH_EXTEND_CONFIG"
         ;;
     *)
-        less "$CLASH_CONFIG_MIXIN"
+        _ensure_extend_config
+        less "$CLASH_EXTEND_CONFIG"
         ;;
     esac
 }
@@ -877,7 +987,9 @@ _clashrules_base() {
 }
 
 _clashrules_edit() {
-    ${EDITOR:-vim} "$CLASH_CONFIG_MIXIN" && {
+    _ensure_extend_config
+    ${EDITOR:-vim} "$CLASH_EXTEND_CONFIG" && {
+        rm -f "${CLASH_EXTEND_CONFIG}.disabled" "${CLASH_CONFIG_MIXIN}.disabled"
         _merge_config_restart && _okcat "全局配置已保存并生效"
     }
 }
@@ -885,7 +997,8 @@ _clashrules_edit() {
 _clashrules_set() {
     local from_file=false
     local content=""
-    
+    local tmp_config
+
     # 解析参数
     while (($#)); do
         case "$1" in
@@ -899,54 +1012,69 @@ _clashrules_set() {
             ;;
         esac
     done
-    
+
+    [ -z "$content" ] && {
+        _failcat "用法: clashctl rules set <yaml> 或 clashctl rules set -f <file>"
+        return 1
+    }
+
+    tmp_config=$(mktemp) || return 1
     if [ "$from_file" = true ]; then
-        # 从文件读取
         if [ -f "$content" ]; then
-            cp "$content" "$CLASH_CONFIG_MIXIN" || {
+            cp "$content" "$tmp_config" || {
+                rm -f "$tmp_config"
                 _failcat "复制文件失败"
                 return 1
             }
         else
+            rm -f "$tmp_config"
             _failcat "文件不存在: $content"
             return 1
         fi
     else
-        # 直接写入 YAML 内容
-        echo "$content" > "$CLASH_CONFIG_MIXIN" || {
+        printf '%s\n' "$content" >"$tmp_config" || {
+            rm -f "$tmp_config"
             _failcat "写入配置失败"
             return 1
         }
     fi
-    
-    # 验证 YAML 格式
-    if ! "$BIN_YQ" '.' "$CLASH_CONFIG_MIXIN" > /dev/null 2>&1; then
+
+    # 验证 YAML 格式，确认无误后再替换现有配置。
+    if ! "$BIN_YQ" '.' "$tmp_config" >/dev/null 2>&1; then
+        rm -f "$tmp_config"
         _failcat "YAML 格式无效，配置未应用"
         return 1
     fi
-    
+
+    mv -f "$tmp_config" "$CLASH_EXTEND_CONFIG" || {
+        rm -f "$tmp_config"
+        _failcat "保存配置失败"
+        return 1
+    }
+    rm -f "${CLASH_EXTEND_CONFIG}.disabled" "${CLASH_CONFIG_MIXIN}.disabled"
     _merge_config_restart
     _okcat "全局配置已更新并生效"
 }
 
 _clashrules_on() {
-    rm -f "${CLASH_CONFIG_MIXIN}.disabled"
+    rm -f "${CLASH_EXTEND_CONFIG}.disabled" "${CLASH_CONFIG_MIXIN}.disabled"
     _okcat "全局配置自动应用已启用"
 }
 
 _clashrules_off() {
-    touch "${CLASH_CONFIG_MIXIN}.disabled"
+    touch "${CLASH_EXTEND_CONFIG}.disabled"
     _okcat "全局配置自动应用已禁用"
 }
 
 _clashrules_status() {
-    if [ -f "$CLASH_CONFIG_MIXIN" ]; then
+    if [ -f "$CLASH_EXTEND_CONFIG" ]; then
         local status="启用"
-        [ -f "${CLASH_CONFIG_MIXIN}.disabled" ] && status="禁用"
+        _is_extend_disabled && status="禁用"
         _okcat "全局配置: $status"
-        echo "路径: $CLASH_CONFIG_MIXIN"
+        echo "路径: $CLASH_EXTEND_CONFIG"
     else
         _failcat "全局配置未创建"
+        echo "路径: $CLASH_EXTEND_CONFIG"
     fi
 }
 
@@ -1629,12 +1757,20 @@ _sub_add_manual() {
     local config_file="$2"
     local id=$("$BIN_YQ" '.profiles // [] | (map(.id) | max) // 0 | . + 1' "$CLASH_PROFILES_META")
     local profile_path="${CLASH_PROFILES_DIR}/${id}.yaml"
-    
+
     mkdir -p "$CLASH_PROFILES_DIR"
     cp "$config_file" "$profile_path"
-    
-    "$BIN_YQ" -i ".profiles += [{id: $id, url: \"file://$profile_path\", name: \"$name\", updated: \"$(date -Iseconds)\"}]" "$CLASH_PROFILES_META"
-    
+
+    PROFILE_ID=$id PROFILE_PATH=$profile_path PROFILE_NAME=$name PROFILE_UPDATED=$(date -Iseconds) "$BIN_YQ" -i '
+        .profiles = (.profiles // []) +
+        [{
+          "id": env(PROFILE_ID),
+          "url": ("file://" + strenv(PROFILE_PATH)),
+          "name": strenv(PROFILE_NAME),
+          "updated": strenv(PROFILE_UPDATED)
+        }]
+    ' "$CLASH_PROFILES_META"
+
     echo "$id"
 }
 
@@ -1837,3 +1973,15 @@ EOF
         ;;
     esac
 }
+
+# 兼容旧版快捷命令
+clashon() { _clashon "$@"; }
+clashoff() { _clashoff "$@"; }
+clashstatus() { _clashstatus "$@"; }
+clashproxy() { _clashproxy "$@"; }
+clashui() { _clashweb "$@"; }
+clashsecret() { _clashweb_secret "$@"; }
+clashtun() { _clashtun "$@"; }
+clashsub() { _clashsub "$@"; }
+clashmixin() { _clashrules "$@"; }
+clashupgrade() { _clashupgrade "$@"; }
